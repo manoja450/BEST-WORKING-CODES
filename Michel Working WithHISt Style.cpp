@@ -83,10 +83,10 @@ struct pulse_temp {
 
 // SPE fitting function
 Double_t SPEfit(Double_t *x, Double_t *par) {
-    Double_t term1 = par[0] * exp(-0.5 * pow((x[0] - par[1])/par[2], 2));
-    Double_t term2 = par[3] * exp(-0.5 * pow((x[0] - par[4])/par[5], 2));
-    Double_t term3 = par[6] * exp(-0.5 * pow((x[0] - sqrt(2)*par[4])/sqrt(2*pow(par[5],2)-pow(par[2],2)), 2));
-    Double_t term4 = par[7] * exp(-0.5 * pow((x[0] - sqrt(3)*par[4])/sqrt(3*pow(par[5],2)-2*pow(par[2],2)), 2));
+    Double_t term1 = par[0] * exp(-0.5 * pow((x[0] - par[1]) / par[2], 2));
+    Double_t term2 = par[3] * exp(-0.5 * pow((x[0] - par[4]) / par[5], 2));
+    Double_t term3 = par[6] * exp(-0.5 * pow((x[0] - sqrt(2) * par[4]) / sqrt(2 * pow(par[5], 2) - pow(par[2], 2)), 2));
+    Double_t term4 = par[7] * exp(-0.5 * pow((x[0] - sqrt(3) * par[4]) / sqrt(3 * pow(par[5], 2) - 2 * pow(par[2], 2)), 2));
     return term1 + term2 + term3 + term4;
 }
 
@@ -143,7 +143,7 @@ void createOutputDirectory(const string& dirName) {
     }
 }
 
-// SPE calibration function with improved stats box
+// SPE calibration function
 void performCalibration(const string &calibFileName, Double_t *mu1, Double_t *mu1_err) {
     TFile *calibFile = TFile::Open(calibFileName.c_str());
     if (!calibFile || calibFile->IsZombie()) {
@@ -158,14 +158,12 @@ void performCalibration(const string &calibFileName, Double_t *mu1, Double_t *mu
         exit(1);
     }
 
-    TCanvas *c = new TCanvas("c", "SPE Fits", 1200, 800);
-    TH1F *histArea[N_PMTS] = {nullptr};
+    TCanvas *c = new TCanvas("c", "SPE Fits", 800, 600);
+    TH1F *histArea[N_PMTS];
     Long64_t nLEDFlashes[N_PMTS] = {0};
-    
     for (int i = 0; i < N_PMTS; i++) {
         histArea[i] = new TH1F(Form("PMT%d_Area", i + 1),
-                               Form("PMT %d;ADC Counts;Events", i + 1), 
-                               150, -50, 400);
+                               Form("PMT %d;ADC Counts;Events", i + 1), 150, -50, 400);
     }
 
     Int_t triggerBits;
@@ -194,10 +192,6 @@ void performCalibration(const string &calibFileName, Double_t *mu1, Double_t *mu
             continue;
         }
 
-        // Set statistics box options
-        histArea[i]->SetStats(10);  // Only show name and entries
-        //histArea[i]->SetOption(111);  // Show fit parameters, errors, and chi2
-
         TF1 *fitFunc = new TF1("fitFunc", SPEfit, -50, 400, 8);
         Double_t histMean = histArea[i]->GetMean();
         Double_t histRMS = histArea[i]->GetRMS();
@@ -206,49 +200,26 @@ void performCalibration(const string &calibFileName, Double_t *mu1, Double_t *mu
                               1000, histMean, histRMS,
                               500, 200);
 
-        histArea[i]->Fit(fitFunc, "Q0", "", -50, 400);  // Quiet mode
+        histArea[i]->Fit(fitFunc, "Q", "", -50, 400);
 
         mu1[i] = fitFunc->GetParameter(4);
         Double_t sigma_mu1 = fitFunc->GetParError(4);
         Double_t sigma1 = fitFunc->GetParameter(5);
         mu1_err[i] = sqrt(pow(sigma_mu1, 2) + pow(sigma1 / sqrt(nLEDFlashes[i]), 2));
 
-        // Draw histogram and fit
+        // Plot SPE fit
         c->Clear();
         histArea[i]->Draw();
         fitFunc->Draw("same");
-
-        // Create legend
-        TLegend *leg = new TLegend(0.65, 0.75, 0.95, 0.85);
-        leg->SetBorderSize(0);
-        leg->SetFillStyle(0);
-        leg->SetTextFont(42);
-        leg->SetTextSize(0.03);
+        TLegend *leg = new TLegend(0.6, 0.7, 0.9, 0.9);
         leg->AddEntry(histArea[i], Form("PMT %d Data", i + 1), "l");
         leg->AddEntry(fitFunc, "SPE Fit", "l");
         leg->AddEntry((TObject*)0, Form("mu1 = %.2f #pm %.2f", mu1[i], mu1_err[i]), "");
         leg->Draw();
-
-        // Adjust statistics box position and style
-        gPad->Update();
-        if (TPaveStats* stats = (TPaveStats*)histArea[i]->FindObject("stats")) {
-            stats->SetX1NDC(0.65);
-            stats->SetY1NDC(0.50);  // Position below legend
-            stats->SetX2NDC(0.95);
-            stats->SetY2NDC(0.70);
-            stats->SetTextFont(42);
-            stats->SetTextSize(0.03);
-            stats->SetBorderSize(1);
-            stats->SetFillColor(0);
-            stats->Draw();
-        }
-
-        c->Update();
         string plotName = OUTPUT_DIR + Form("/SPE_Fit_PMT%d.png", i + 1);
+        c->Update();
         c->SaveAs(plotName.c_str());
         cout << "Saved SPE plot: " << plotName << endl;
-        
-        // Clean up
         delete leg;
         delete fitFunc;
         delete histArea[i];
@@ -321,11 +292,11 @@ int main(int argc, char *argv[]) {
     // Define histograms
     TH1D* h_muon_energy = new TH1D("muon_energy", "Muon Energy Distribution (with Michel Electrons);Energy (p.e.);Counts/100 p.e.", 550, -500, 5000);
     TH1D* h_michel_energy = new TH1D("michel_energy", "Michel Electron Energy Distribution;Energy (p.e.);Counts/8 p.e.", 100, 0, 800);
-    TH1D* h_dt_michel = new TH1D("DeltaT", "Muon-Michel Time Difference ;Time to Previous event(Muon)(#mus);Counts/0.08 #mus", 500, 0, MICHEL_DT_MAX);
+    TH1D* h_dt_michel = new TH1D("DeltaT", "Muon-Michel Time Difference ;Time to Previous event(Muon)(#mus);Counts/0.08 #mus", 200, 0, MICHEL_DT_MAX);
     TH2D* h_energy_vs_dt = new TH2D("energy_vs_dt", "Michel Energy vs Time Difference;dt (#mus);Energy (p.e.)", 160, 0, 1000, 200, 0, 2000);
     TH1D* h_side_vp_muon = new TH1D("side_vp_muon", "Side Veto Energy for Muons;Energy (ADC);Counts", 200, 0, 5000);
     TH1D* h_top_vp_muon = new TH1D("top_vp_muon", "Top Veto Energy for Muons;Energy (ADC);Counts", 200, 0, 1000);
-    TH1D* h_trigger_bits = new TH1D("trigger_bits", "Trigger Bits Distribution;Trigger Bits;Counts", 32, 0, 32); // Fixed range 0-32
+    TH1D* h_trigger_bits = new TH1D("trigger_bits", "Trigger Bits Distribution;Trigger Bits;Counts", 36, 0, 36);
 
     for (const auto& inputFileName : inputFiles) {
         // Check if input file exists
@@ -383,7 +354,7 @@ int main(int argc, char *argv[]) {
             h_trigger_bits->Fill(triggerBits);
             trigger_counts[triggerBits]++;
             // Check for out-of-range triggerBits
-            if (triggerBits < 0 || triggerBits > 31) {
+            if (triggerBits < 0 || triggerBits > 36) {
                 cout << "Warning: triggerBits = " << triggerBits << " out of histogram range (0–31) in file " << inputFileName << ", event " << eventID << endl;
             }
 
@@ -520,17 +491,13 @@ int main(int argc, char *argv[]) {
 
             // Muon detection
             bool veto_hit = false;
-            // Check side veto panels
             for (size_t i = 0; i < SIDE_VP_THRESHOLDS.size(); i++) {
                 if (veto_energies[i] > SIDE_VP_THRESHOLDS[i]) {
                     veto_hit = true;
                     break;
                 }
             }
-            // Check top veto panels
-            if (!veto_hit && (veto_energies[8] > TOP_VP_THRESHOLD || veto_energies[9] > TOP_VP_THRESHOLD)) {
-                veto_hit = true;
-            }
+            if (!veto_hit && p.top_vp_energy > TOP_VP_THRESHOLD) veto_hit = true;
 
             if ((p.energy > MUON_ENERGY_THRESHOLD && veto_hit) ||
                 (pulse_at_end && p.energy > MUON_ENERGY_THRESHOLD / 2 && veto_hit)) {
@@ -545,8 +512,13 @@ int main(int argc, char *argv[]) {
             // Michel electron detection
             double dt = p.start - last_muon_time;
             bool veto_low = true;
-            // Use identical veto logic as muon identification
-            if (veto_hit) {
+            for (size_t i = 0; i < SIDE_VP_THRESHOLDS.size(); i++) {
+                if (veto_energies[i] > SIDE_VP_THRESHOLDS[i]) {
+                    veto_low = false;
+                    break;
+                }
+            }
+            if (veto_energies[8] > TOP_VP_THRESHOLD || veto_energies[9] > TOP_VP_THRESHOLD) {
                 veto_low = false;
             }
 
@@ -643,22 +615,25 @@ int main(int argc, char *argv[]) {
     TF1* expFit = nullptr;
     if (h_dt_michel->GetEntries() > 5) {
         // Initial parameter estimates
-        double maxBinContent = 0;
-        int maxBin = 0;
-        for (int i = 1; i <= h_dt_michel->GetNbinsX(); i++) {
-            if (h_dt_michel->GetBinContent(i) > maxBinContent) {
-                maxBinContent = h_dt_michel->GetBinContent(i);
-                maxBin = i;
-            }
-        }
-        double binWidth = h_dt_michel->GetBinWidth(1);
-        double N0_init = maxBinContent;
-        double tau_init = 2.2;
-        double C_init = h_dt_michel->GetBinContent(h_dt_michel->FindBin(15.0));
+        double integral = h_dt_michel->Integral(h_dt_michel->FindBin(FIT_MIN), h_dt_michel->FindBin(FIT_MAX));
+        double bin_width = h_dt_michel->GetBinWidth(1);
+        double N0_init = integral * bin_width / (FIT_MAX - FIT_MIN);
+        double C_init = 0;
         
+        // Estimate constant background from last bins (12-16 µs)
+        int bin_12 = h_dt_michel->FindBin(12.0);
+        int bin_16 = h_dt_michel->FindBin(16.0);
+        double min_content = 1e9;
+        for (int i = bin_12; i <= bin_16; i++) {
+            double content = h_dt_michel->GetBinContent(i);
+            if (content > 0 && content < min_content) min_content = content;
+        }
+        if (min_content < 1e9) C_init = min_content;
+        else C_init = 0.1;
+
         // Create and configure fit function
         expFit = new TF1("expFit", ExpFit, FIT_MIN, FIT_MAX, 3);
-        expFit->SetParameters(N0_init, tau_init, C_init);
+        expFit->SetParameters(N0_init, 2.2, C_init);
         expFit->SetParLimits(0, 0, N0_init * 100);
         expFit->SetParLimits(1, 0.1, 20.0);
         expFit->SetParLimits(2, -C_init * 10, C_init * 10);
