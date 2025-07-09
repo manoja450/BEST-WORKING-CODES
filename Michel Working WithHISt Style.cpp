@@ -36,7 +36,7 @@ const double MUON_ENERGY_THRESHOLD = 50; // Min PMT energy for muon (p.e.)
 const double MICHEL_ENERGY_MIN = 40;    // Min PMT energy for Michel (p.e.)
 const double MICHEL_ENERGY_MAX = 1000;  // Max PMT energy for Michel (p.e.)
 const double MICHEL_ENERGY_MAX_DT = 400; // Max PMT energy for dt plots (p.e.)
-const double MICHEL_DT_MIN = 0.8;       // Min time after muon for Michel (µs)
+const double MICHEL_DT_MIN = 0.76;       // Min time after muon for Michel (µs)
 const double MICHEL_DT_MAX = 16.0;      // Max time after muon for Michel (µs)
 const int ADCSIZE = 45;                 // Number of ADC samples per waveform
 
@@ -50,8 +50,9 @@ string getTimestamp() {
 }
 const string OUTPUT_DIR = "./AnalysisOutput_" + getTimestamp();
 
-const std::vector<double> SIDE_VP_THRESHOLDS = {750, 950, 1200, 1375, 525, 700, 700, 500}; // Channels 12-19 (ADC)
-const double TOP_VP_THRESHOLD = 450; // Channels 20-21 (ADC)
+// Consolidated veto panel thresholds (10 elements: channels 12-21)
+const double VP_THRESHOLDS[10] = {750, 950, 1200, 1375, 525, 700, 700, 500, 450, 450};
+
 const double FIT_MIN = 1.0; // Fit range min (µs)
 const double FIT_MAX = 10.0; // Fit range max (µs)
 
@@ -293,7 +294,7 @@ int main(int argc, char *argv[]) {
     TH1D* h_muon_energy = new TH1D("muon_energy", "Muon Energy Distribution (with Michel Electrons);Energy (p.e.);Counts/100 p.e.", 550, -500, 5000);
     TH1D* h_michel_energy = new TH1D("michel_energy", "Michel Electron Energy Distribution;Energy (p.e.);Counts/8 p.e.", 100, 0, 800);
     TH1D* h_dt_michel = new TH1D("DeltaT", "Muon-Michel Time Difference ;Time to Previous event(Muon)(#mus);Counts/0.08 #mus", 200, 0, MICHEL_DT_MAX);
-    TH2D* h_energy_vs_dt = new TH2D("energy_vs_dt", "Michel Energy vs Time Difference;dt (#mus);Energy (p.e.)", 160, 0, 1000, 200, 0, 2000);
+    TH2D* h_energy_vs_dt = new TH2D("energy_vs_dt", "Michel Energy vs Time Difference;dt (#mus);Energy (p.e.)", 160, 0, 16, 200, 0, 1000);
     TH1D* h_side_vp_muon = new TH1D("side_vp_muon", "Side Veto Energy for Muons;Energy (ADC);Counts", 200, 0, 5000);
     TH1D* h_top_vp_muon = new TH1D("top_vp_muon", "Top Veto Energy for Muons;Energy (ADC);Counts", 200, 0, 1000);
     TH1D* h_trigger_bits = new TH1D("trigger_bits", "Trigger Bits Distribution;Trigger Bits;Counts", 36, 0, 36);
@@ -489,15 +490,14 @@ int main(int argc, char *argv[]) {
             }
             p.single = (variance(chan_starts_no_outliers) < 5 * 16.0 / 1000.0);
 
-            // Muon detection
+            // Muon detection using consolidated thresholds
             bool veto_hit = false;
-            for (size_t i = 0; i < SIDE_VP_THRESHOLDS.size(); i++) {
-                if (veto_energies[i] > SIDE_VP_THRESHOLDS[i]) {
+            for (int i = 0; i < 10; i++) {
+                if (veto_energies[i] > VP_THRESHOLDS[i]) {
                     veto_hit = true;
                     break;
                 }
             }
-            if (!veto_hit && p.top_vp_energy > TOP_VP_THRESHOLD) veto_hit = true;
 
             if ((p.energy > MUON_ENERGY_THRESHOLD && veto_hit) ||
                 (pulse_at_end && p.energy > MUON_ENERGY_THRESHOLD / 2 && veto_hit)) {
@@ -512,14 +512,11 @@ int main(int argc, char *argv[]) {
             // Michel electron detection
             double dt = p.start - last_muon_time;
             bool veto_low = true;
-            for (size_t i = 0; i < SIDE_VP_THRESHOLDS.size(); i++) {
-                if (veto_energies[i] > SIDE_VP_THRESHOLDS[i]) {
+            for (int i = 0; i < 10; i++) {
+                if (veto_energies[i] > VP_THRESHOLDS[i]) {
                     veto_low = false;
                     break;
                 }
-            }
-            if (veto_energies[8] > TOP_VP_THRESHOLD || veto_energies[9] > TOP_VP_THRESHOLD) {
-                veto_low = false;
             }
 
             // Define common Michel electron criteria
@@ -533,6 +530,7 @@ int main(int argc, char *argv[]) {
                                       p.trigger != 4 &&
                                       p.trigger != 8 &&
                                       p.trigger != 16;
+                        h_energy_vs_dt->Fill(dt, p.energy);
 
             // Apply additional cut for dt and energy_vs_dt plots
             bool is_michel_for_dt = is_michel_candidate && p.energy <= MICHEL_ENERGY_MAX_DT;
@@ -548,7 +546,6 @@ int main(int argc, char *argv[]) {
             if (is_michel_for_dt) {
                 // Fill dt and energy_vs_dt histograms with stricter energy cut
                 h_dt_michel->Fill(dt);
-                h_energy_vs_dt->Fill(dt, p.energy);
             }
 
             p.last_muon_time = last_muon_time;
@@ -605,12 +602,12 @@ int main(int argc, char *argv[]) {
     c->SaveAs(plotName.c_str());
     cout << "Saved plot: " << plotName << endl;
 
-    // Michel dt with exponential fit - FIXED
+    // Michel dt with exponential fit
     c->Clear();
     h_dt_michel->SetLineWidth(2);
     h_dt_michel->SetLineColor(kBlack);
     h_dt_michel->GetXaxis()->SetTitle("Time to previous event (Muon) [#mus]");
-    h_dt_michel->Draw("HIST");  // Draw histogram first
+    h_dt_michel->Draw("HIST");
 
     TF1* expFit = nullptr;
     if (h_dt_michel->GetEntries() > 5) {
@@ -643,7 +640,6 @@ int main(int argc, char *argv[]) {
 
         // Perform fit and draw on top
         int fitStatus = h_dt_michel->Fit(expFit, "RE+", "SAME", FIT_MIN, FIT_MAX);
-        expFit->Draw("SAME");  // Explicitly draw the fit function
         
         // Update stats box
         gPad->Update();
@@ -687,8 +683,6 @@ int main(int argc, char *argv[]) {
     }
 
     c->Update();
-    c->Modified();
-    c->RedrawAxis();
     plotName = OUTPUT_DIR + "/Michel_dt.png";
     c->SaveAs(plotName.c_str());
     cout << "Saved plot: " << plotName << endl;
