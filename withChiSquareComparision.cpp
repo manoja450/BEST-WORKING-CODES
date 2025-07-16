@@ -54,7 +54,7 @@ string getTimestamp() {
 const string OUTPUT_DIR = "./AnalysisOutput_" + getTimestamp();
 
 // SiPM thresholds ( channels 12-21)
-const double SIPM_THRESHOLDS[10] = {700, 900, 1150, 1400, 500, 700, 700, 500, 500, 500};
+const double SIPM_THRESHOLDS[10] = {750, 950, 1200, 1375, 525, 700, 700, 500,450,450}; 
 const double FIT_MIN = 1.0; // Fit range min (µs)
 const double FIT_MAX = 10.0; // Fit range max (µs)
 
