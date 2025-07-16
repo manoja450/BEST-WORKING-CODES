@@ -1,4 +1,4 @@
-//This code is also working, but in addition, it has chi chi-square/ndf comparison to determine the best fit start time.
+//This code is also working(with new variable names), but in addition, it has chi chi-square/ndf comparison to determine the best fit start time.
 #include <TFile.h>
 #include <TTree.h>
 #include <TBranch.h>
